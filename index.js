@@ -385,118 +385,145 @@ mc.emitter.on('stopped', () => {
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  const commandName = interaction.commandName;
+
   log(
     'Discord',
-    `/${interaction.commandName} requested by ${interaction.user.tag}.`,
+    `/${commandName} requested by ${interaction.user.tag}.`,
   );
 
-  const status = mc.getStatus();
+  // Acknowledge immediately so Discord does not expire the interaction
+  // while the command is being processed.
+  try {
+    await interaction.deferReply();
+  } catch (error) {
+    log(
+      'Discord',
+      `Unable to acknowledge /${commandName}: ${error.message}`,
+    );
+    return;
+  }
 
-  switch (interaction.commandName) {
+  try {
+    const status = mc.getStatus();
 
-    case 'start': {
-      if (
-        status.connected ||
-        status.connecting ||
-        status.reconnecting
-      ) {
-        return interaction.reply({
+    switch (commandName) {
+      case 'start': {
+        if (
+          status.connected ||
+          status.connecting ||
+          status.reconnecting
+        ) {
+          return interaction.editReply({
+            embeds: [
+              createEmbed(
+                'Bot Already Active',
+                Colors.Yellow,
+              ).setDescription(
+                'The bot is already connected or waiting to reconnect.',
+              ),
+            ],
+          });
+        }
+
+        mc.start();
+
+        return interaction.editReply({
           embeds: [
             createEmbed(
-              'Bot Already Active',
-              Colors.Yellow,
+              'Joining Server',
+              Colors.Green,
             ).setDescription(
-              'The bot is already connected or waiting to reconnect.',
+              `Connecting to ${config.server.ip}. The server may take up to two minutes to wake.`,
+            ).addFields(
+              {
+                name: 'Bot Name',
+                value: `\`${config.bot.username}\`\`,
+                inline: true,
+              },
+              {
+                name: 'Server',
+                value: `\`${config.server.ip}\`\`,
+                inline: true,
+              },
             ),
           ],
-          ephemeral: true,
         });
       }
 
-      await interaction.deferReply();
+      case 'stop': {
+        if (
+          !status.connected &&
+          !status.connecting &&
+          !status.reconnecting
+        ) {
+          return interaction.editReply({
+            embeds: [
+              createEmbed(
+                'Bot Already Offline',
+                Colors.Blurple,
+              ).setDescription(
+                'There is no active AFK session to stop.',
+              ),
+            ],
+          });
+        }
 
-      mc.start();
+        mc.stop();
 
-      return interaction.editReply({
-        embeds: [
-          createEmbed(
-            'Joining Server',
-            Colors.Green,
-          ).setDescription(
-            `Connecting to ${config.server.ip}. The server may take up to two minutes to wake.`,
-          ).addFields(
-            {
-              name: 'Bot Name',
-              value: `\`${config.bot.username}\``,
-              inline: true,
-            },
-            {
-              name: 'Server',
-              value: `\`${config.server.ip}\``,
-              inline: true,
-            },
-          ),
-        ],
-      });
-    }
-
-    case 'stop': {
-      if (
-        !status.connected &&
-        !status.connecting &&
-        !status.reconnecting
-      ) {
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [
             createEmbed(
-              'Bot Already Offline',
-              Colors.Blurple,
+              'Bot Stopped',
+              Colors.Red,
             ).setDescription(
-              'There is no active AFK session to stop.',
+              'The AFK session was stopped. Use /start to connect again.',
             ),
           ],
-          ephemeral: true,
         });
       }
 
-      await interaction.deferReply();
+      case 'status': {
+        const color = status.connected
+          ? Colors.Green
+          : (
+              status.connecting || status.reconnecting
+                ? Colors.Yellow
+                : Colors.DarkGrey
+            );
 
-      mc.stop();
+        return interaction.editReply({
+          embeds: [
+            buildStatusEmbed(
+              status,
+              `Bot Status: ${getBotState(status)}`,
+              color,
+            ),
+          ],
+        });
+      }
 
-      return interaction.editReply({
-        embeds: [
-          createEmbed(
-            'Bot Stopped',
-            Colors.Red,
-          ).setDescription(
-            'The AFK session was stopped. Use /start to connect again.',
-          ),
-        ],
-      });
+      default:
+        return interaction.editReply({
+          content: 'Unknown command.',
+        });
     }
+  } catch (error) {
+    log(
+      'Discord',
+      `Error handling /${commandName}: ${error.stack || error.message}`,
+    );
 
-    case 'status': {
-      const color = status.connected
-        ? Colors.Green
-        : (
-            status.connecting || status.reconnecting
-              ? Colors.Yellow
-              : Colors.DarkGrey
-          );
-
-      return interaction.reply({
-        embeds: [
-          buildStatusEmbed(
-            status,
-            `Bot Status: ${getBotState(status)}`,
-            color,
-          ),
-        ],
+    try {
+      await interaction.editReply({
+        content: '⚠️ The command could not be completed. Check the Console Bot logs.',
       });
+    } catch (replyError) {
+      log(
+        'Discord',
+        `Unable to send command error response: ${replyError.message}`,
+      );
     }
-
-    default:
-      return undefined;
   }
 });
 
