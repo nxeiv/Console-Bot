@@ -275,13 +275,27 @@ async function notifyChannel(embed) {
     await channel.send({
       embeds: [embed],
     });
+    statusChannelWarningShown = false;
   } catch (error) {
+    if (error.code === 10003 || error.code === 50001) {
+      if (!statusChannelWarningShown) {
+        log(
+          'Discord',
+          `Status channel is unavailable or inaccessible (code ${error.code}). Check STATUS_CHANNEL_ID and the bot's View Channel/Send Messages permissions.`,
+        );
+        statusChannelWarningShown = true;
+      }
+      return;
+    }
+
     log(
       'Discord',
       `Unable to send a status update: ${error.message}`,
     );
   }
 }
+
+let statusChannelWarningShown = false;
 
 function updatePresence() {
   if (!client.user) return;
