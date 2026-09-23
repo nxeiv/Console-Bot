@@ -32,6 +32,7 @@ const state = {
   intervals: [],
   reconnectTimer: null,
   connectionTimer: null,
+  generation: 0,
 };
 
 const emitter = new EventEmitter();
@@ -86,13 +87,16 @@ function start() {
     log('Bot', 'The bot is already running or connecting.');
     return;
   }
+
   state.manualStop = false;
   state.reconnectAttempts = 0;
-  createBot();
+  state.generation++;
+  createBot(state.generation);
 }
 
 function stop() {
   state.manualStop = true;
+  state.generation++;
   clearTimers();
   clearIntervals();
   if (state.bot) {
@@ -127,7 +131,8 @@ function getStatus() {
   };
 }
 
-function createBot() {
+function createBot(generation = state.generation) {
+  if (generation !== state.generation || state.manualStop) return;
   if (state.isConnecting || state.isReconnecting) return;
   state.isConnecting = true;
 
@@ -170,6 +175,8 @@ function createBot() {
 
   clearTimers();
   state.connectionTimer = setTimeout(() => {
+    if (generation !== state.generation || state.manualStop) return;
+
     if (!state.connected) {
       state.isConnecting = false;
       log('Bot', 'Connection timed out: no spawn event after 150 seconds.');
@@ -182,6 +189,7 @@ function createBot() {
   let spawnHandled = false;
 
   bot.once('spawn', () => {
+    if (generation !== state.generation || state.manualStop) return;
     if (spawnHandled) return;
     spawnHandled = true;
 
@@ -195,7 +203,11 @@ function createBot() {
     log('Bot', `Connected (Minecraft ${bot.version}). Checking for other players.`);
     emitter.emit('connected', { version: bot.version });
 
-    setTimeout(() => checkAndActOnPlayers(bot), 2_000);
+    setTimeout(() => {
+      if (generation === state.generation && !state.manualStop) {
+        checkAndActOnPlayers(bot);
+      }
+    }, 2_000);
   });
 
   bot.on('kicked', (reason) => {
@@ -208,6 +220,11 @@ function createBot() {
 
   bot.on('end', (reason) => {
     log('Bot', `Disconnected: ${reason || 'unknown reason'}.`);
+
+    if (generation !== state.generation || state.manualStop) {
+      return;
+    }
+
     state.connected = false;
     state.isConnecting = false;
     state.playerCount = 0;
@@ -320,8 +337,8 @@ function checkAndActOnPlayers(bot) {
   }, 5_000);
 }
 
-function rejoinASAP() {
-  if (state.manualStop) return;
+function rejoinASAP(generation = state.generation) {
+  if (generation !== state.generation || state.manualStop) return;
   if (state.isReconnecting) return;
 
   state.isReconnecting = true;
@@ -337,8 +354,14 @@ function rejoinASAP() {
 
   state.reconnectTimer = setTimeout(() => {
     state.reconnectTimer = null;
+
+    if (generation !== state.generation || state.manualStop) {
+      state.isReconnecting = false;
+      return;
+    }
+
     state.isReconnecting = false;
-    createBot();
+    createBot(generation);
   }, delay);
 }
 
