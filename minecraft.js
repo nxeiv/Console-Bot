@@ -214,6 +214,9 @@ function createBot(generation = state.generation) {
     const r = typeof reason === 'object' ? JSON.stringify(reason) : reason;
     log('Bot', `Kicked from the server: ${r}`);
     state.connected = false;
+    state.isConnecting = false;
+    state.playerCount = 0;
+    clearTimers();
     clearIntervals();
     emitter.emit('kicked', r);
   });
@@ -238,7 +241,24 @@ function createBot(generation = state.generation) {
   });
 
   bot.on('error', (err) => {
-    log('Bot', `Network error: ${err.message}`);
+    const message = err?.stack || err?.message || String(err);
+    log('Bot', `Network/protocol error: ${message}`);
+
+    // Mineflayer can surface malformed packet data as a PartialReadError.
+    // Treat it as a broken connection so the normal reconnect path can recover
+    // instead of leaving the bot stuck in a half-connected state.
+    if (err?.partialReadError) {
+      if (generation !== state.generation || state.manualStop) return;
+
+      state.connected = false;
+      state.isConnecting = false;
+      state.playerCount = 0;
+      clearTimers();
+      clearIntervals();
+
+      try { bot.end(); } catch (_) { }
+      rejoinASAP(generation);
+    }
   });
 }
 
