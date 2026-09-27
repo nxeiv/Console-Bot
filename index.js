@@ -14,10 +14,13 @@ const {
 
 const config = require('./config');
 const mc = require('./minecraft');
+const { summarizeChannel, handleSummaryButton } = require('./summary');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -397,6 +400,15 @@ mc.emitter.on('stopped', () => {
 });
 
 client.on(Events.InteractionCreate, async interaction => {
+  if (interaction.isButton()) {
+    try {
+      const handled = await handleSummaryButton(interaction);
+      if (handled) return;
+    } catch (error) {
+      log('Summary', 'Button handling failed: ' + error.message);
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const commandName = interaction.commandName;
@@ -538,6 +550,21 @@ client.on(Events.InteractionCreate, async interaction => {
         `Unable to send command error response: ${replyError.message}`,
       );
     }
+  }
+});
+
+client.on(Events.MessageCreate, async message => {
+  if (message.author.bot || !message.guild || !client.user) return;
+
+  const mentioned = message.mentions.users.has(client.user.id);
+  const asksForSummary = /\bsummar(?:y|ize|ise)\b/i.test(message.content);
+
+  if (!mentioned || !asksForSummary) return;
+
+  try {
+    await summarizeChannel({ message, client });
+  } catch (error) {
+    log('Summary', 'Unexpected summary error: ' + (error.stack || error.message));
   }
 });
 
