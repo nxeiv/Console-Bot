@@ -193,7 +193,7 @@ async function handleSummaryButton(interaction) {
     return true;
   }
 
-  await interaction.update({ components: [] });
+  await interaction.message.delete();
   return true;
 }
 
